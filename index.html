@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ALCONCENT - 酔っ払い度チェック</title>
   
-  <!-- Tailwind CSS (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS (CDN) --><script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Lucide Icons (CDN) -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Lucide Icons (CDN) --><script src="https://unpkg.com/lucide@latest"></script>
   
   <style>
     /* 3Dフリップアニメーション用のユーティリティ */
@@ -42,14 +40,45 @@
       transition: width 0.5s ease-in-out;
       background: linear-gradient(90deg, #34d399, #fde047, #f97316, #ef4444);
     }
+
+    /* マッチ時のキラキラアニメーション */
+    @keyframes pulse-ring {
+      0% {
+        transform: scale(0.3);
+        opacity: 0.7;
+      }
+      100% {
+        transform: scale(1.5);
+        opacity: 0;
+      }
+    }
+
+    .matched-pulse-effect::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, rgba(255, 255, 0, 0.5) 0%, transparent 70%);
+      border-radius: 50%;
+      animation: pulse-ring 0.6s ease-out forwards;
+      transform: translate(-50%, -50%); /* 中央に配置 */
+      z-index: 10;
+    }
+    
+    /* カードがマッチして消えるときのアニメーション */
+    .fade-out-match {
+      transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+      opacity: 0;
+      transform: scale(0.8);
+    }
   </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white font-sans p-4">
 
-  <!-- ゲームのUI全体がこの中に描画される -->
-  <div id="app-container" class="w-full max-w-2xl text-center">
-    <!-- JavaScriptによって中身が生成されます -->
-  </div>
+  <!-- ゲームのUI全体がこの中に描画される --><div id="app-container" class="w-full max-w-2xl text-center">
+    <!-- JavaScriptによって中身が生成されます --></div>
 
   <script>
     // --- 定数と設定 ---
@@ -73,7 +102,8 @@
     let flippedCards = [];
     let moves = 0;
     let isChecking = false;
-    let justMatched = [];
+    let justMatched = []; // [id, id]
+    let animatingMatch = []; // マッチアニメーション中のカードID
 
     // --- タイマーの状態 ---
     let timerInterval = null;
@@ -101,7 +131,6 @@
       startTime = Date.now();
       timerInterval = setInterval(() => {
         elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-        // タイマー表示を更新（ゲーム画面内にあれば）
         const timerEl = document.getElementById('timer-display');
         if (timerEl) {
           timerEl.textContent = `${elapsedTime} 秒`;
@@ -129,6 +158,7 @@
       moves = 0;
       isChecking = false;
       justMatched = [];
+      animatingMatch = []; // 追加
       elapsedTime = 0;
       apiResponse = null;
     };
@@ -136,23 +166,26 @@
     // --- カードのHTML生成 ---
     const createCardHTML = (card) => {
       const { id, iconName, isFlipped, isMatched } = card;
-      const isAnimating = justMatched.includes(id);
+      const isAnimating = justMatched.includes(id); // 古いマッチアニメーション
+      const isCurrentlyAnimatingMatch = animatingMatch.includes(id); // 新しいアニメーション
+
+      // カードの状態に応じたスタイル
       const cardInnerClasses = `
         aspect-square rounded-lg shadow-lg flex items-center justify-center 
         cursor-pointer transition-all duration-300 ease-in-out
         transform-style-3d relative
         ${isFlipped || isMatched ? 'bg-cyan-800' : 'bg-gray-700 hover:bg-gray-600'}
         ${isFlipped && !isMatched ? 'rotate-y-180' : ''}
-        ${isMatched ? 'opacity-50 cursor-not-allowed' : ''}
-        ${isAnimating ? 'ring-4 ring-yellow-300 scale-110' : ''}
-      `;
+        ${isMatched && !isCurrentlyAnimatingMatch ? 'fade-out-match' : ''} <!-- マッチしてアニメーション終了後 -->${isCurrentlyAnimatingMatch ? 'matched-pulse-effect' : ''} <!-- マッチアニメーション中 -->`;
+
       return `
         <div class="w-full h-full perspective-1000" data-id="${id}">
           <div class="${cardInnerClasses}">
-            <div class="absolute w-full h-full flex items-center justify-center backface-hidden rotate-y-180">
+            <!-- カードの表面（アイコン） --><div class="absolute w-full h-full flex items-center justify-center backface-hidden rotate-y-180">
               <i data-lucide="${iconName.toLowerCase()}" class="w-1/2 h-1/2 text-cyan-300"></i>
             </div>
-            <div class="absolute w-full h-full flex items-center justify-center backface-hidden">
+            
+            <!-- カードの裏面（？マーク） --><div class="absolute w-full h-full flex items-center justify-center backface-hidden">
               ${!(isFlipped || isMatched) ? '<i data-lucide="help-circle" class="w-1/2 h-1/2 text-gray-400"></i>' : ''}
             </div>
           </div>
@@ -165,7 +198,6 @@
       let html = '';
 
       switch (gameState) {
-        // 1. モード選択画面
         case 'SELECT':
           const baselineText = baselineResult 
             ? `(記録: ${baselineResult.moves}手 / ${baselineResult.time}秒)` 
@@ -186,7 +218,6 @@
           `;
           break;
 
-        // 2. ゲームプレイ画面 (ベースライン / チェック)
         case 'BASELINE':
         case 'CHECK':
           const title = gameState === 'BASELINE' ? 'シラフ時 測定中' : '酔っ払い度 チェック中';
@@ -206,7 +237,6 @@
           `;
           break;
 
-        // 3. ローディング画面
         case 'LOADING':
           html = `
             <h2 class="text-3xl font-bold mb-4">分析中...</h2>
@@ -217,9 +247,8 @@
           `;
           break;
 
-        // 4. 結果表示画面
         case 'RESULT':
-          if (!apiResponse) { // APIエラーの場合
+          if (!apiResponse) {
             html = `
               <h2 class="text-3xl font-bold mb-4 text-red-500">分析エラー</h2>
               <p class="text-lg mb-8">分析に失敗しました。時間をおいてもう一度お試しください。</p>
@@ -267,12 +296,9 @@
       }
 
       appContainer.innerHTML = html;
-      // アイコンをSVGに変換
       lucide.createIcons();
 
-      // 酔っ払い度バーのアニメーション（結果表示時）
       if (gameState === 'RESULT' && apiResponse) {
-        // 遅延させてアニメーションを見せる
         setTimeout(() => {
           const fillBar = document.querySelector('.drunk-level-fill');
           if (fillBar) fillBar.style.width = `${(apiResponse.drunk_level / 5) * 100}%`;
@@ -304,8 +330,8 @@
         
       } catch (error) {
         console.error("Fetch Analysis Error:", error);
-        apiResponse = null; // エラーフラグ
-        gameState = 'RESULT'; // エラーでも結果画面に遷移してエラーを表示
+        apiResponse = null;
+        gameState = 'RESULT';
       }
       renderApp();
     }
@@ -322,7 +348,7 @@
       if (flippedCards.length === 2) {
         isChecking = true;
         moves++;
-        document.getElementById('moves-display').textContent = moves; // 手数更新
+        document.getElementById('moves-display').textContent = moves;
         
         const [firstCardId, secondCardId] = flippedCards;
         const firstCard = cards.find(c => c.id === firstCardId);
@@ -330,14 +356,17 @@
 
         if (firstCard.iconName === secondCard.iconName) {
           // --- マッチ ---
-          firstCard.isMatched = true;
-          secondCard.isMatched = true;
-          justMatched = [firstCardId, secondCardId];
-          
+          animatingMatch = [firstCardId, secondCardId]; // アニメーション開始
+          renderApp(); // アニメーションを適用するために再描画
+
           setTimeout(() => {
+            // アニメーションが終わったら消す
+            firstCard.isMatched = true;
+            secondCard.isMatched = true;
+            animatingMatch = []; // アニメーション解除
+            
             flippedCards = [];
             isChecking = false;
-            justMatched = [];
             
             // --- ゲームクリアかチェック ---
             if (cards.every(card => card.isMatched)) {
@@ -345,19 +374,16 @@
               currentResult = { moves: moves, time: elapsedTime };
               
               if (gameState === 'BASELINE') {
-                // ベースライン測定完了
                 baselineResult = currentResult;
                 localStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify(baselineResult));
                 gameState = 'SELECT';
               } else if (gameState === 'CHECK') {
-                // 酔っ払い度チェック完了 -> API呼び出しへ
                 fetchAnalysis();
               }
-              renderApp();
-            } else {
-              renderApp(); // アニメーション解除
             }
-          }, 500);
+            renderApp(); // マッチしたカードをフェードアウト＆次の状態へ
+          }, 600); // キラキラアニメーションの時間 (0.6秒)
+          
         } else {
           // --- ミスマッチ ---
           setTimeout(() => {
@@ -376,18 +402,15 @@
     document.addEventListener('DOMContentLoaded', () => {
       appContainer = document.getElementById('app-container');
 
-      // localStorageからベースラインを読み込む
       const storedBaseline = localStorage.getItem(BASELINE_STORAGE_KEY);
       if (storedBaseline) {
         baselineResult = JSON.parse(storedBaseline);
       }
 
-      // メインのイベントリスナー（イベント委任）
       appContainer.addEventListener('click', (event) => {
         const target = event.target.closest('button, [data-id]');
         if (!target) return;
 
-        // 1. スタート（ベースライン）
         if (target.id === 'start-baseline') {
           gameState = 'BASELINE';
           initializeGame();
@@ -396,7 +419,6 @@
           return;
         }
 
-        // 2. スタート（酔っ払い度チェック）
         if (target.id === 'start-check') {
           gameState = 'CHECK';
           initializeGame();
@@ -405,14 +427,12 @@
           return;
         }
 
-        // 3. ホームに戻る（結果画面から）
         if (target.id === 'back-to-select') {
           gameState = 'SELECT';
           renderApp();
           return;
         }
 
-        // 4. カードクリック
         if (target.dataset.id && (gameState === 'BASELINE' || gameState === 'CHECK')) {
           const id = parseInt(target.dataset.id, 10);
           handleCardClick(id);
@@ -420,7 +440,6 @@
         }
       });
 
-      // 最初の画面を描画
       renderApp();
     });
   </script>
